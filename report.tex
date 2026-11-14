@@ -1,0 +1,181 @@
+\documentclass[conference]{IEEEtran}
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage{microtype}
+
+% ---------- paths / helpers -------------------------------------------------
+% If you upload only this folder to Overleaf, copy the repo's `results` folder
+% next to report.tex and change the line below to \newcommand{\resdir}{results}
+\newcommand{\resdir}{../results}
+\input{\resdir/numbers.tex}   % macros written by the notebook (\bestOpt, \accAdam, ...)
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}   % delete every \todo before submission
+\newcommand{\figorbox}[2]{\IfFileExists{#1}{\includegraphics[width=#2]{#1}}{\fbox{\parbox{0.9\linewidth}{\centering Figure missing -- run the notebook and copy \texttt{results/} here}}}}
+
+\begin{document}
+
+\title{A Comparative Study of Optimization Algorithms\\for CNN-Based Image Classification on CIFAR-10}
+
+\author{\IEEEauthorblockN{Vataliya Mitesh Kiritbhai}
+\IEEEauthorblockA{M.Tech CSE, Enrollment No.\ AU2644030\\
+Department of Computer Science and Engineering\\
+\todo{Institution name}\\
+AI Deep Learning Lab -- Milestone 2}}
+
+\maketitle
+
+\begin{abstract}
+The optimizer used to train a convolutional neural network (CNN) strongly affects convergence speed, final accuracy and computational cost. This work presents a controlled empirical comparison of four optimizers---SGD with momentum, Adam, RMSprop and AdamW---for CIFAR-10 image classification. A single \nParams-parameter CNN, one fixed data split, identical augmentation, batch size and epoch budget are used for every experiment, and each optimizer is trained with \nSeeds{} random seeds for \nEpochs{} epochs. Models are evaluated with accuracy, macro precision, recall and F1-score on the 10{,}000-image test set, together with training/validation loss curves, convergence speed and wall-clock training time. \bestOpt{} obtained the highest mean test accuracy (\bestAcc\,\% $\pm$ \bestAccStd), while the spread between the best and worst optimizer was \accGap{} percentage points. A learning-rate sensitivity ablation further examines how dependent each optimizer is on its learning rate.
+\end{abstract}
+
+\begin{IEEEkeywords}
+deep learning, optimization, SGD, Adam, RMSprop, AdamW, CNN, CIFAR-10
+\end{IEEEkeywords}
+
+%% ---------------------------------------------------------------------------
+\section{Introduction}
+Convolutional neural networks (CNNs) are the standard tool for image classification, but their performance depends on more than architecture: the optimizer decides how parameters are updated from gradients and therefore shapes convergence behaviour, generalisation and training cost. Adaptive methods such as Adam are popular because they need little tuning, whereas SGD with momentum remains a strong baseline, and there is evidence that the ranking of methods is not universal~\cite{wilson2017}. This project therefore performs a controlled empirical comparison instead of assuming a single best optimizer.
+
+\textbf{Objectives.} (i) Implement a CNN for CIFAR-10 in PyTorch; (ii) train it with SGD, Adam, RMSprop and AdamW under identical conditions; (iii) evaluate accuracy, precision, recall and F1-score; (iv) analyse loss and convergence behaviour; (v) compare training time; and (vi) identify the best optimizer under the chosen setup.
+
+\section{Related Work}
+\textbf{Dataset.} CIFAR-10~\cite{krizhevsky2009} contains 60{,}000 $32\times32$ colour images in 10 classes (50{,}000 train, 10{,}000 test).
+\textbf{Optimizers.} Adam~\cite{kingma2015} adapts per-parameter step sizes using estimates of the first and second gradient moments. AdamW~\cite{loshchilov2019} decouples weight decay from the gradient-based update. RMSprop~\cite{tieleman2012} scales gradients by a running average of their squared magnitude. SGD with momentum~\cite{sutskever2013} accumulates a velocity term and remains the classical baseline; Ruder~\cite{ruder2016} gives a survey of these methods. Wilson \emph{et~al.}~\cite{wilson2017} reported that adaptive methods can generalise worse than SGD, which motivates repeating the comparison empirically in our setting.
+
+\section{Methodology}
+\subsection{Dataset and Split}
+All code is implemented in PyTorch~\cite{paszke2019}. The 50{,}000 CIFAR-10 training images are split once (fixed seed 42) into 45{,}000 training and 5{,}000 validation images; the official 10{,}000 test images are used only for final evaluation. Inputs are $32\times32\times3$ RGB images normalised with the per-channel training mean and standard deviation. Training images use random crop (padding 4) and horizontal flip; validation/test images are not augmented.
+
+\subsection{CNN Architecture}
+All experiments use the same CNN with \nParams{} trainable parameters: three blocks of two $3\times3$ convolutions (32, 64, 128 filters) with ReLU followed by $2\times2$ max-pooling, then a fully connected layer (2048$\to$256) with ReLU and dropout (0.3), and a final 10-way linear layer. For a given seed all optimizers start from the same initial weights and see the same mini-batch order.
+
+\subsection{Optimizers}
+Let $g_t=\nabla_\theta\mathcal{L}(\theta_{t-1})$ and $\eta$ the learning rate. The PyTorch implementations used here update parameters as follows.
+\begin{align}
+\text{SGD+M:}\quad & v_t=\mu v_{t-1}+g_t,\;\; \theta_t=\theta_{t-1}-\eta v_t\\
+\text{RMSprop:}\quad & s_t=\alpha s_{t-1}+(1-\alpha)g_t^2,\;\; \theta_t=\theta_{t-1}-\eta\frac{g_t}{\sqrt{s_t}+\epsilon}\\
+\text{Adam:}\quad & m_t=\beta_1 m_{t-1}+(1-\beta_1)g_t,\;\; s_t=\beta_2 s_{t-1}+(1-\beta_2)g_t^2,\nonumber\\
+& \theta_t=\theta_{t-1}-\eta\frac{\hat m_t}{\sqrt{\hat s_t}+\epsilon}\\
+\text{AdamW:}\quad & \theta_t=\theta_{t-1}-\eta\Big(\frac{\hat m_t}{\sqrt{\hat s_t}+\epsilon}+\lambda\theta_{t-1}\Big)
+\end{align}
+where $\hat m_t,\hat s_t$ are bias-corrected moment estimates. Table~\ref{tab:setup} lists the settings.
+
+\begin{table}[t]
+\caption{Experimental setup. Only the optimizer rows differ.}
+\label{tab:setup}
+\centering\small
+\begin{tabular}{ll}
+\toprule
+\multicolumn{2}{l}{\textit{Shared by all runs}}\\
+Loss / batch size & Cross-entropy / 128\\
+Epochs / seeds & \nEpochs{} / \nSeeds{} (0, 1, 2)\\
+Model selection & Best validation-accuracy epoch\\
+Hardware / framework & Google Colab GPU \todo{state GPU, e.g.\ T4} / PyTorch\\
+\midrule
+\multicolumn{2}{l}{\textit{Optimizer-specific}}\\
+SGD & $\eta=0.01$, $\mu=0.9$, no weight decay\\
+Adam & $\eta=10^{-3}$, $\beta=(0.9,0.999)$, $\epsilon=10^{-8}$\\
+RMSprop & $\eta=10^{-3}$, $\alpha=0.99$, $\epsilon=10^{-8}$\\
+AdamW & $\eta=10^{-3}$, $\beta=(0.9,0.999)$, $\lambda=10^{-2}$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Evaluation Metrics}
+We report test accuracy and macro-averaged precision, recall and F1-score (scikit-learn), the test loss, the number of epochs needed to first reach \convThresh\,\% validation accuracy (convergence speed), and the total wall-clock training time (training loop including data loading, excluding validation). Values are mean $\pm$ standard deviation over \nSeeds{} seeds. Learning rates differ across optimizers because the methods operate on different scales; the sensitivity ablation in Section~\ref{sec:lr} checks how much this choice matters.
+
+\section{Results}
+\subsection{Overall Comparison}
+Table~\ref{tab:main} summarises test performance. \bestOpt{} achieved the highest mean accuracy (\bestAcc\,\%), followed by the others as shown; \worstOpt{} was lowest (\worstAcc\,\%), a gap of \accGap{} percentage points. SGD, Adam, RMSprop and AdamW reached \accSGD, \accAdam, \accRMSprop{} and \accAdamW\,\% respectively.
+\todo{State whether the gap exceeds the seed-to-seed standard deviation (largest std is shown in the table). If it does not, say the optimizers are statistically indistinguishable in this setup.}
+
+\begin{table*}[t]
+\caption{Test-set results (mean $\pm$ std over \nSeeds{} seeds). Best accuracy in bold.}
+\label{tab:main}
+\centering\small
+\IfFileExists{\resdir/results_table.tex}{\input{\resdir/results_table.tex}}{\fbox{results\_table.tex missing}}
+\end{table*}
+
+\subsection{Convergence and Loss Behaviour}
+Fig.~\ref{fig:loss} shows training and validation loss, and Fig.~\ref{fig:val} the validation accuracy (mean with $\pm1$ std band). The optimizer reaching \convThresh\,\% validation accuracy first was \fastConvOpt{} (Table~\ref{tab:main}, last column; ``--'' means the threshold was never reached).
+\todo{Describe from the figures: which curves fall fastest, whether any optimizer's validation loss rises (over-fitting) while training loss keeps falling, and which are smoother/noisier.}
+
+\begin{figure*}[t]
+\centering
+\figorbox{\resdir/figures/loss_curves.pdf}{0.72\textwidth}
+\caption{Training (left) and validation (right) loss versus epoch.}
+\label{fig:loss}
+\end{figure*}
+
+\begin{figure}[t]
+\centering
+\figorbox{\resdir/figures/val_acc_curves.pdf}{0.95\columnwidth}
+\caption{Validation accuracy versus epoch.}
+\label{fig:val}
+\end{figure}
+
+\subsection{Computational Efficiency}
+Fig.~\ref{fig:bars} (right) shows time per epoch. Mean training times were \timeSGD, \timeAdam, \timeRMSprop{} and \timeAdamW\,s for SGD, Adam, RMSprop and AdamW; \fastestOpt{} was fastest per epoch. Because all optimizers share the same model and data pipeline, differences are expected to be small and may reflect measurement noise or data-loading variability.
+\todo{Comment on whether the time differences are meaningful relative to the accuracy differences.}
+
+\begin{figure*}[t]
+\centering
+\figorbox{\resdir/figures/accuracy_time_bars.pdf}{0.65\textwidth}
+\caption{Mean test accuracy (error bars: std over seeds) and training time per epoch.}
+\label{fig:bars}
+\end{figure*}
+
+\subsection{Per-class Behaviour}
+Fig.~\ref{fig:cm} shows the normalised confusion matrix of \bestOpt, summed over seeds.
+\todo{Name the 2--3 most-confused class pairs (typically cat/dog) and the easiest classes.}
+
+\begin{figure}[t]
+\centering
+\figorbox{\resdir/figures/confusion_matrix.pdf}{0.85\columnwidth}
+\caption{Normalised confusion matrix for the best optimizer.}
+\label{fig:cm}
+\end{figure}
+
+\subsection{Ablation: Learning-Rate Sensitivity}\label{sec:lr}
+To test whether the ranking is an artefact of the chosen learning rates, each optimizer was retrained for \sweepEpochs{} epochs with three learning rates (single seed, so differences of a few tenths of a percent are not reliable). Table~\ref{tab:lr} and Fig.~\ref{fig:lr} show the result; note these shorter runs are not comparable to Table~\ref{tab:main}.
+\todo{Say which optimizer was most/least sensitive and whether the best LR matches the default used in the main experiment.}
+
+\begin{table}[t]
+\caption{Learning-rate ablation (seed 0, \sweepEpochs{} epochs).}
+\label{tab:lr}
+\centering\small
+\IfFileExists{\resdir/lr_sweep_table.tex}{\input{\resdir/lr_sweep_table.tex}}{\fbox{lr\_sweep\_table.tex missing}}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\figorbox{\resdir/figures/lr_sensitivity.pdf}{0.85\columnwidth}
+\caption{Test accuracy versus learning rate.}
+\label{fig:lr}
+\end{figure}
+
+\section{Discussion}
+Under this setup \bestOpt{} gave the best overall accuracy, but the practical choice also depends on convergence speed, stability and tuning effort. \todo{Interpret in 1--2 paragraphs, linking observations to the update rules: e.g.\ adaptive methods normalise step sizes and often converge faster early, while SGD with momentum may need more epochs but can generalise comparably~\cite{wilson2017}; AdamW's decoupled decay acts as regularisation~\cite{loshchilov2019}. Only keep claims your numbers support.}
+
+\textbf{Limitations.} Results are for one small CNN, one dataset, a fixed 30-epoch budget, no learning-rate schedule and only \nSeeds{} seeds; learning rates were set to standard defaults rather than tuned per optimizer, and the ablation uses a single seed. Conclusions may not transfer to larger architectures or datasets.
+
+\section{Conclusion}
+We compared SGD with momentum, Adam, RMSprop and AdamW on CIFAR-10 with a fixed CNN and training protocol. \bestOpt{} achieved the highest mean test accuracy of \bestAcc\,\%. \todo{One sentence on speed/efficiency and one on the recommended optimizer.} Future work includes learning-rate schedules, per-optimizer tuning, deeper architectures (e.g.\ ResNet) and additional datasets.
+
+\section*{Code Availability}
+Code, notebook, results and instructions: \url{https://github.com/<your-username>/<repo-name>} \todo{replace with real URL}.
+
+\begin{thebibliography}{10}
+\bibitem{krizhevsky2009} A.~Krizhevsky, ``Learning multiple layers of features from tiny images,'' Univ.\ of Toronto, Tech.\ Rep., 2009.
+\bibitem{kingma2015} D.~P. Kingma and J.~Ba, ``Adam: A method for stochastic optimization,'' in \emph{Proc.\ ICLR}, 2015 (arXiv:1412.6980).
+\bibitem{loshchilov2019} I.~Loshchilov and F.~Hutter, ``Decoupled weight decay regularization,'' in \emph{Proc.\ ICLR}, 2019 (arXiv:1711.05101).
+\bibitem{ruder2016} S.~Ruder, ``An overview of gradient descent optimization algorithms,'' arXiv:1609.04747, 2016.
+\bibitem{sutskever2013} I.~Sutskever, J.~Martens, G.~Dahl, and G.~Hinton, ``On the importance of initialization and momentum in deep learning,'' in \emph{Proc.\ ICML}, 2013.
+\bibitem{tieleman2012} T.~Tieleman and G.~Hinton, ``Lecture 6.5---RMSprop,'' \emph{COURSERA: Neural Networks for Machine Learning}, 2012.
+\bibitem{wilson2017} A.~C. Wilson, R.~Roelofs, M.~Stern, N.~Srebro, and B.~Recht, ``The marginal value of adaptive gradient methods in machine learning,'' in \emph{Proc.\ NeurIPS}, 2017.
+\bibitem{paszke2019} A.~Paszke \emph{et~al.}, ``PyTorch: An imperative style, high-performance deep learning library,'' in \emph{Proc.\ NeurIPS}, 2019.
+\end{thebibliography}
+\end{document}
